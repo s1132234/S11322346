@@ -15,9 +15,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -36,25 +40,44 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
     val heightPx = displayMetrics.heightPixels.toFloat()
     val density = LocalDensity.current.density
 
-    // --- 服務圖示的尺寸設定 (300px) ---
+    val collisionAreas = remember { mutableStateMapOf<String, CollisionArea>() }
+
     val serviceImageSizePx = 300f
     val serviceImageSizeDp: Dp = (serviceImageSizePx / density).dp
 
-    // 在 Composable 首次組合時，將螢幕尺寸和圖示尺寸傳遞給 ViewModel
     LaunchedEffect(Unit) {
         viewModel.screenHeightPx = heightPx
         viewModel.serviceImageHeightPx = serviceImageSizePx
-        // 首次啟動時設定圖示位置
-        viewModel.resetServiceIcon(widthPx)
+        viewModel.initializeIcon(widthPx)
     }
 
-    // 將 ViewModel 中的像素座標轉換成 Dp 偏移，Compose 才能使用
+    // 檢查服務圖示是否碰撞任何角色圖示
+    LaunchedEffect(viewModel.serviceY, viewModel.isDropping) {
+        // 只有在圖示正在下落時才檢查碰撞
+        if (viewModel.serviceY > 0 && viewModel.isDropping) {
+            val serviceRect = RectF(
+                viewModel.serviceX,
+                viewModel.serviceY,
+                viewModel.serviceX + serviceImageSizePx,
+                viewModel.serviceY + serviceImageSizePx
+            )
+
+            for ((key, area) in collisionAreas) {
+                if (serviceRect.intersects(area.rect)) {
+                    viewModel.score += 10
+                    // *** 修正後的碰撞訊息 ***
+                    viewModel.handleCollision(" (碰撞${area.description})", widthPx)
+                    break
+                }
+            }
+        }
+    }
+
+
     val serviceXInDp = (viewModel.serviceX / density).dp
     val serviceYInDp = (viewModel.serviceY / density).dp
 
-    // --- 拖曳狀態管理 ---
     val draggableState = rememberDraggableState { delta ->
-        // 限制拖曳範圍在螢幕邊界內
         val newX = viewModel.serviceX + delta
         val maxX = widthPx - serviceImageSizePx
 
@@ -63,8 +86,6 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
         }
     }
 
-
-    // --- 原有圖片尺寸計算 ---
     val imageSizePx = 300f
     val imageSizeDp: Dp = (imageSizePx / density).dp
     val screenHalfHeightDp: Dp = (heightPx / density / 2f).dp
@@ -76,7 +97,7 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
             .background(Color.Yellow)
     ) {
 
-        // --- 四個固定角色圖示 ---
+        // 四個固定角色圖示 (修正 CollisionArea 的 description)
         Image(
             painter = painterResource(id = R.drawable.role0),
             contentDescription = "嬰兒",
@@ -84,6 +105,13 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
                 .size(imageSizeDp)
                 .align(Alignment.TopStart)
                 .offset(y = offsetForHalfScreen)
+                .onGloballyPositioned { coordinates ->
+                    val rect = coordinates.boundsInRoot()
+                    collisionAreas["role0"] = CollisionArea(
+                        RectF(rect.left, rect.top, rect.right, rect.bottom),
+                        "嬰幼兒圖示" // <-- 修正
+                    )
+                }
         )
 
         Image(
@@ -93,6 +121,13 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
                 .size(imageSizeDp)
                 .align(Alignment.TopEnd)
                 .offset(y = offsetForHalfScreen)
+                .onGloballyPositioned { coordinates ->
+                    val rect = coordinates.boundsInRoot()
+                    collisionAreas["role1"] = CollisionArea(
+                        RectF(rect.left, rect.top, rect.right, rect.bottom),
+                        "兒童圖示" // <-- 修正
+                    )
+                }
         )
 
         Image(
@@ -101,6 +136,13 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
             modifier = Modifier
                 .size(imageSizeDp)
                 .align(Alignment.BottomStart)
+                .onGloballyPositioned { coordinates ->
+                    val rect = coordinates.boundsInRoot()
+                    collisionAreas["role2"] = CollisionArea(
+                        RectF(rect.left, rect.top, rect.right, rect.bottom),
+                        "成人圖示" // <-- 修正
+                    )
+                }
         )
 
         Image(
@@ -109,9 +151,16 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
             modifier = Modifier
                 .size(imageSizeDp)
                 .align(Alignment.BottomEnd)
+                .onGloballyPositioned { coordinates ->
+                    val rect = coordinates.boundsInRoot()
+                    collisionAreas["role3"] = CollisionArea(
+                        RectF(rect.left, rect.top, rect.right, rect.bottom),
+                        "一般民眾圖示" // <-- 已包含
+                    )
+                }
         )
 
-        // --- 中央資訊區 ---
+        // 中央資訊區
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -141,21 +190,20 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // 分數顯示，加入 collisionMessage
             Text(
-                text = "成績 : ${viewModel.score}分",
+                text = "成績 : ${viewModel.score}分${viewModel.collisionMessage}",
                 fontSize = 18.sp
             )
         }
 
-        // --- 服務圖示 (位於最上層) ---
+        // 服務圖示 (位於最上層)
         Image(
             painter = painterResource(id = viewModel.currentServiceId),
             contentDescription = "服務圖示",
             modifier = Modifier
                 .size(serviceImageSizeDp)
-                // 應用 ViewModel 提供的 X 和 Y 偏移
                 .offset(x = serviceXInDp, y = serviceYInDp)
-                // 添加水平拖曳手勢
                 .draggable(
                     state = draggableState,
                     orientation = Orientation.Horizontal,

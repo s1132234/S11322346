@@ -13,67 +13,75 @@ import kotlin.random.Random
 
 class ExamViewModel : ViewModel() {
 
-    // 遊戲成績
     var score by mutableStateOf(0)
+    var collisionMessage by mutableStateOf("")
 
-    // 服務圖示資源 ID (假設我們有多個服務圖示，這裡只用 service0 作為範例)
-    private val serviceDrawables = listOf(R.drawable.service0) // 您可以添加 service1, service2, ...
+    private val serviceDrawables = listOf(R.drawable.service0)
 
-    // 服務圖示的當前資源 ID
-    var currentServiceId by mutableStateOf(R.drawable.service0) // 初始設定為 service0
+    var currentServiceId by mutableStateOf(R.drawable.service0)
 
-    // 服務圖示的垂直位置 (y 座標，以像素為單位)
     var serviceY by mutableFloatStateOf(0f)
 
-    // 服務圖示的水平位置 (x 座標，以像素為單位，用於拖曳)
     var serviceX by mutableFloatStateOf(0f)
 
-    // 紀錄螢幕的高度 (Px)，用於碰撞偵測
     var screenHeightPx by mutableFloatStateOf(0f)
 
-    // 紀錄服務圖示的高度 (Px)，用於精準碰撞偵測
     var serviceImageHeightPx by mutableFloatStateOf(0f)
 
+    var isDropping by mutableStateOf(true) // 控制圖示是否正在下落
+
     private var dropJob: Job? = null
+    private var delayJob: Job? = null // 新增：用於控制碰撞後的延遲
 
     init {
-        // ViewModel 啟動時開始圖示的下落
         startDropping()
     }
 
-    // 重設圖示位置並隨機選擇下一個圖示
-    fun resetServiceIcon(screenWidthPx: Float) {
-        // 隨機選擇圖示 (如果有多個 serviceDrawables)
-        currentServiceId = serviceDrawables[Random.nextInt(serviceDrawables.size)]
-
-        // 重設 Y 座標到螢幕上方
+    // 負責圖示從上方重新開始下落的邏輯
+    fun restartDrop(screenWidthPx: Float) {
+        // 取消任何正在進行的延遲，如果有的話
+        delayJob?.cancel()
         serviceY = 0f
-
-        // 重設 X 座標到水平中央
-        serviceX = (screenWidthPx / 2f) - (serviceImageHeightPx / 2f)
+        collisionMessage = ""
+        isDropping = true
     }
 
-    // 開始下落的 Coroutine 任務
+    // 處理碰撞/觸底後的動作：設定訊息，停止下落，並開始延遲計時
+    fun handleCollision(message: String, screenWidthPx: Float) {
+        if (!isDropping) return // 避免重複觸發
+
+        collisionMessage = message
+        isDropping = false // 停止下落
+
+        // 啟動 3 秒延遲
+        delayJob?.cancel()
+        delayJob = viewModelScope.launch {
+            delay(3000L) // 延遲 3 秒
+            restartDrop(screenWidthPx) // 延遲結束後重新開始下落
+        }
+    }
+
+    // 首次啟動時設定圖示位置和 ID
+    fun initializeIcon(screenWidthPx: Float) {
+        currentServiceId = serviceDrawables[Random.nextInt(serviceDrawables.size)]
+        serviceX = (screenWidthPx / 2f) - (serviceImageHeightPx / 2f)
+        restartDrop(screenWidthPx)
+    }
+
     private fun startDropping() {
-        dropJob?.cancel() // 取消任何舊的任務
+        dropJob?.cancel()
         dropJob = viewModelScope.launch {
             while (true) {
-                delay(100L) // 0.1 秒 (100 毫秒)
+                delay(100L) // 0.1 秒
 
-                // 檢查是否已設定螢幕高度
-                if (screenHeightPx > 0) {
-                    val dropAmount = 20f // 下落 20 像素
+                if (screenHeightPx > 0 && isDropping) {
+                    val dropAmount = 20f
 
-                    // 計算新的 Y 座標
-                    val newY = serviceY + dropAmount
+                    serviceY += dropAmount
 
-                    // 碰撞偵測：圖示底部 (newY + 圖示高度) 是否超過螢幕底部
-                    if (newY + serviceImageHeightPx >= screenHeightPx) {
-                        // 碰撞螢幕下方，觸發重設
-                        resetServiceIcon(screenHeightPx * 2) // 這裡傳入的參數實際上是screenWidth，但需要從外部傳入
-                        // 注意：這裡暫時用 screenHeightPx * 2 替代，ExamScreen 必須在第一次呼叫時傳入正確的 screenWidth
-                    } else {
-                        serviceY = newY // 繼續下落
+                    // 檢查是否碰撞底邊界
+                    if (serviceY + serviceImageHeightPx >= screenHeightPx) {
+                        handleCollision(" (掉到最下方)", screenHeightPx * 2)
                     }
                 }
             }
@@ -82,6 +90,17 @@ class ExamViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
-        dropJob?.cancel() // ViewModel 銷毀時停止任務
+        dropJob?.cancel()
+        delayJob?.cancel() // ViewModel 銷毀時停止延遲任務
     }
 }
+
+// 用於碰撞偵測的簡單矩形類別
+data class RectF(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    fun intersects(other: RectF): Boolean {
+        return left < other.right && right > other.left && top < other.bottom && bottom > other.top
+    }
+}
+
+// 用於儲存角色位置和描述的資料類別
+data class CollisionArea(val rect: RectF, val description: String)
