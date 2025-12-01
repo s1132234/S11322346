@@ -1,5 +1,6 @@
 package tw.edu.pu.o365.s1132234
 
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.zIndex
 
 @Composable
 fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
@@ -42,6 +44,13 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
 
     val collisionAreas = remember { mutableStateMapOf<String, CollisionArea>() }
 
+    val serviceMessages = mapOf(
+        R.drawable.service0 to Pair("極早期療育,屬於嬰幼兒方面的服務", R.drawable.role0),
+        R.drawable.service1 to Pair("離島服務,屬於兒童方面的服務", R.drawable.role1),
+        R.drawable.service2 to Pair("極重多障,屬於成人方面的服務", R.drawable.role2),
+        R.drawable.service3 to Pair("輔具服務,屬於一般民眾方面的服務", R.drawable.role3)
+    )
+
     val serviceImageSizePx = 300f
     val serviceImageSizeDp: Dp = (serviceImageSizePx / density).dp
 
@@ -53,7 +62,6 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
 
     // 檢查服務圖示是否碰撞任何角色圖示
     LaunchedEffect(viewModel.serviceY, viewModel.isDropping) {
-        // 只有在圖示正在下落時才檢查碰撞
         if (viewModel.serviceY > 0 && viewModel.isDropping) {
             val serviceRect = RectF(
                 viewModel.serviceX,
@@ -64,8 +72,22 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
 
             for ((key, area) in collisionAreas) {
                 if (serviceRect.intersects(area.rect)) {
-                    viewModel.score += 10
-                    // *** 修正後的碰撞訊息 ***
+
+                    val currentServiceId = viewModel.currentServiceId
+                    val correctRoleId = serviceMessages[currentServiceId]?.second
+
+                    // 1. 判斷計分/扣分
+                    if (area.roleId == correctRoleId) {
+                        viewModel.score += 1 // 正確碰撞,加 1 分
+                    } else {
+                        viewModel.score -= 1 // 錯誤碰撞,扣 1 分
+                    }
+
+                    // 2. 彈出 Toast 顯示詳細訊息
+                    val message = serviceMessages[currentServiceId]?.first ?: "未知服務"
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+
+                    // 3. 呼叫 ViewModel 處理 3 秒延遲和分數顯示
                     viewModel.handleCollision(" (碰撞${area.description})", widthPx)
                     break
                 }
@@ -97,7 +119,9 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
             .background(Color.Yellow)
     ) {
 
-        // 四個固定角色圖示 (修正 CollisionArea 的 description)
+        // --- 靜態圖示層 (底部層) ---
+
+        // 角色圖示 0
         Image(
             painter = painterResource(id = R.drawable.role0),
             contentDescription = "嬰兒",
@@ -109,11 +133,13 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
                     val rect = coordinates.boundsInRoot()
                     collisionAreas["role0"] = CollisionArea(
                         RectF(rect.left, rect.top, rect.right, rect.bottom),
-                        "嬰幼兒圖示" // <-- 修正
+                        "嬰幼兒圖示",
+                        R.drawable.role0
                     )
                 }
         )
 
+        // 角色圖示 1
         Image(
             painter = painterResource(id = R.drawable.role1),
             contentDescription = "兒童",
@@ -125,42 +151,49 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
                     val rect = coordinates.boundsInRoot()
                     collisionAreas["role1"] = CollisionArea(
                         RectF(rect.left, rect.top, rect.right, rect.bottom),
-                        "兒童圖示" // <-- 修正
+                        "兒童圖示",
+                        R.drawable.role1
                     )
                 }
         )
 
+        // 角色圖示 2
         Image(
             painter = painterResource(id = R.drawable.role2),
             contentDescription = "成人",
             modifier = Modifier
                 .size(imageSizeDp)
                 .align(Alignment.BottomStart)
+                .offset(y = 0.dp)
                 .onGloballyPositioned { coordinates ->
                     val rect = coordinates.boundsInRoot()
                     collisionAreas["role2"] = CollisionArea(
                         RectF(rect.left, rect.top, rect.right, rect.bottom),
-                        "成人圖示" // <-- 修正
+                        "成人圖示",
+                        R.drawable.role2
                     )
                 }
         )
 
+        // 角色圖示 3
         Image(
             painter = painterResource(id = R.drawable.role3),
             contentDescription = "一般民眾",
             modifier = Modifier
                 .size(imageSizeDp)
                 .align(Alignment.BottomEnd)
+                .offset(y = 0.dp)
                 .onGloballyPositioned { coordinates ->
                     val rect = coordinates.boundsInRoot()
                     collisionAreas["role3"] = CollisionArea(
                         RectF(rect.left, rect.top, rect.right, rect.bottom),
-                        "一般民眾圖示" // <-- 已包含
+                        "一般民眾圖示",
+                        R.drawable.role3
                     )
                 }
         )
 
-        // 中央資訊區
+        // 中央資訊區 (中間層)
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -190,14 +223,14 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 分數顯示，加入 collisionMessage
+            // 分數顯示,加入 collisionMessage
             Text(
                 text = "成績 : ${viewModel.score}分${viewModel.collisionMessage}",
                 fontSize = 18.sp
             )
         }
 
-        // 服務圖示 (位於最上層)
+        // 服務圖示 (最高層)
         Image(
             painter = painterResource(id = viewModel.currentServiceId),
             contentDescription = "服務圖示",
@@ -208,6 +241,7 @@ fun ExamScreen(viewModel: ExamViewModel = viewModel()) {
                     state = draggableState,
                     orientation = Orientation.Horizontal,
                 )
+                .zIndex(10f)
         )
     }
 }

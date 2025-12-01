@@ -16,7 +16,12 @@ class ExamViewModel : ViewModel() {
     var score by mutableStateOf(0)
     var collisionMessage by mutableStateOf("")
 
-    private val serviceDrawables = listOf(R.drawable.service0)
+    private val serviceDrawables = listOf(
+        R.drawable.service0,
+        R.drawable.service1,
+        R.drawable.service2,
+        R.drawable.service3
+    )
 
     var currentServiceId by mutableStateOf(R.drawable.service0)
 
@@ -26,12 +31,14 @@ class ExamViewModel : ViewModel() {
 
     var screenHeightPx by mutableFloatStateOf(0f)
 
+    var screenWidthPx by mutableFloatStateOf(0f)  // ✅ 新增:儲存螢幕寬度
+
     var serviceImageHeightPx by mutableFloatStateOf(0f)
 
-    var isDropping by mutableStateOf(true) // 控制圖示是否正在下落
+    var isDropping by mutableStateOf(true)
 
     private var dropJob: Job? = null
-    private var delayJob: Job? = null // 新增：用於控制碰撞後的延遲
+    private var delayJob: Job? = null
 
     init {
         startDropping()
@@ -39,24 +46,25 @@ class ExamViewModel : ViewModel() {
 
     // 負責圖示從上方重新開始下落的邏輯
     fun restartDrop(screenWidthPx: Float) {
-        // 取消任何正在進行的延遲，如果有的話
         delayJob?.cancel()
         serviceY = 0f
         collisionMessage = ""
         isDropping = true
     }
 
-    // 處理碰撞/觸底後的動作：設定訊息，停止下落，並開始延遲計時
+    // 處理碰撞/觸底後的動作:設定訊息,停止下落,並開始延遲計時
     fun handleCollision(message: String, screenWidthPx: Float) {
-        if (!isDropping) return // 避免重複觸發
+        if (!isDropping) return
 
         collisionMessage = message
-        isDropping = false // 停止下落
+        isDropping = false
 
         // 啟動 3 秒延遲
         delayJob?.cancel()
         delayJob = viewModelScope.launch {
             delay(3000L) // 延遲 3 秒
+            // 延遲結束後,重新初始化圖示 (包括隨機選擇 ID 和重設X位置)
+            initializeIcon(screenWidthPx)
             restartDrop(screenWidthPx) // 延遲結束後重新開始下落
         }
     }
@@ -64,8 +72,8 @@ class ExamViewModel : ViewModel() {
     // 首次啟動時設定圖示位置和 ID
     fun initializeIcon(screenWidthPx: Float) {
         currentServiceId = serviceDrawables[Random.nextInt(serviceDrawables.size)]
+        this.screenWidthPx = screenWidthPx  // ✅ 儲存螢幕寬度
         serviceX = (screenWidthPx / 2f) - (serviceImageHeightPx / 2f)
-        restartDrop(screenWidthPx)
     }
 
     private fun startDropping() {
@@ -81,7 +89,15 @@ class ExamViewModel : ViewModel() {
 
                     // 檢查是否碰撞底邊界
                     if (serviceY + serviceImageHeightPx >= screenHeightPx) {
-                        handleCollision(" (掉到最下方)", screenHeightPx * 2)
+
+                        // 1. 確保 Y 座標不會超過底部 (防止圖示在下一幀跳出畫面)
+                        serviceY = screenHeightPx - serviceImageHeightPx
+
+                        // 2. 扣分
+                        score -= 1
+
+                        // 3. 處理 3 秒延遲和重啟
+                        handleCollision(" (掉到最下方)", screenWidthPx)  // ✅ 使用儲存的 screenWidthPx
                     }
                 }
             }
@@ -91,7 +107,7 @@ class ExamViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         dropJob?.cancel()
-        delayJob?.cancel() // ViewModel 銷毀時停止延遲任務
+        delayJob?.cancel()
     }
 }
 
@@ -103,4 +119,4 @@ data class RectF(val left: Float, val top: Float, val right: Float, val bottom: 
 }
 
 // 用於儲存角色位置和描述的資料類別
-data class CollisionArea(val rect: RectF, val description: String)
+data class CollisionArea(val rect: RectF, val description: String, val roleId: Int)
